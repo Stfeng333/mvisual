@@ -47,10 +47,15 @@ async function getToken() {
 
 /**
  * Search tracks; returns raw Spotify track objects.
- * Spotify Search API: limit must be 0-10 (we use 10).
+ * Spotify Search API: limit 0-10, and market is required for preview_url to be returned.
  */
-async function searchTracks(token, q) {
-  const params = new URLSearchParams({ q: String(q).trim(), type: 'track', limit: 10 });
+async function searchTracks(token, q, market = 'US') {
+  const params = new URLSearchParams({
+    q: String(q).trim(),
+    type: 'track',
+    limit: 10,
+    market: market || 'US',
+  });
   const url = `${SPOTIFY_API}/search?${params}`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },

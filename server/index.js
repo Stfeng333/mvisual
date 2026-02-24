@@ -23,18 +23,20 @@ app.get('/api/health', (_req, res) => {
 });
 
 /**
- * GET /api/search?q=...
+ * GET /api/search?q=...&market=US (optional)
  * Returns { tracks: [{ id, name, artist, previewUrl, bpm, energy, valence, genres }] }
+ * market: ISO 3166-1 alpha-2 (e.g. US). Required by Spotify for preview_url to be returned.
  */
 app.get('/api/search', async (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q) {
     return res.status(400).json({ error: 'Missing query parameter: q' });
   }
+  const market = (req.query.market || process.env.SPOTIFY_MARKET || 'US').toUpperCase().slice(0, 2);
 
   try {
     const token = await getToken();
-    const tracks = await searchTracks(token, q);
+    const tracks = await searchTracks(token, q, market);
     const payload = await buildSearchResponse(token, tracks);
     res.json(payload);
   } catch (err) {

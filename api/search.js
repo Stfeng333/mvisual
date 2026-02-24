@@ -27,8 +27,13 @@ async function getToken() {
   return data.access_token;
 }
 
-async function searchTracks(token, q) {
-  const params = new URLSearchParams({ q: String(q).trim(), type: 'track', limit: 10 });
+async function searchTracks(token, q, market = 'US') {
+  const params = new URLSearchParams({
+    q: String(q).trim(),
+    type: 'track',
+    limit: 10,
+    market: market || 'US',
+  });
   const res = await fetch(`${SPOTIFY_API}/search?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -101,10 +106,11 @@ export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   const q = (req.query.q || '').trim();
   if (!q) return res.status(400).json({ error: 'Missing query parameter: q' });
+  const market = ((req.query.market || process.env.SPOTIFY_MARKET || 'US') + '').toUpperCase().slice(0, 2);
 
   try {
     const token = await getToken();
-    const tracks = await searchTracks(token, q);
+    const tracks = await searchTracks(token, q, market);
     const body = await buildResponse(token, tracks);
     return res.status(200).json(body);
   } catch (err) {
