@@ -1,24 +1,24 @@
 ﻿/**
- * Visual effects driven by BPM, energy, genre, and real-time FFT.
+ * Visuals:
+ *  - Pure black background
+ *  - Coloured smoke that shoots inward from all four screen borders,
+ *    pulsing with BPM and reacting to energy/bass
+ *  - On each hard beat: a smooth radial paint explosion bursts from
+ *    the centre and expands outward, then fades
  *
- * Single fullscreen GLSL shader â€” domain-warped FBM simplex noise.
- * Technique: most of the screen stays black; only noise *peaks* get color,
- * producing thin wispy tendrils that look like ink/smoke diffusing in water.
- * Color palette shifts with energy (calm=pinkâ†’magenta, loud=redâ†’orange).
+ * Implemented as a single fullscreen GLSL shader + JS-side beat detection.
  */
 
 import * as THREE from 'three';
 
-// â”€â”€â”€ Public types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Public types ─────────────────────────────────────────────────────────────
 
 export interface EffectParams {
   bpm: number;
   energy: number;
   valence: number;
   genres: string[];
-  /** 0â€“1, mean FFT level */
   level: number;
-  /** Raw FFT frequency bins */
   frequencyData: Uint8Array;
 }
 
@@ -27,7 +27,7 @@ export interface VisualEffect {
   dispose: () => void;
 }
 
-// â”€â”€â”€ Utility â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Utility ──────────────────────────────────────────────────────────────────
 
 export function getBandLevels(data: Uint8Array): { low: number; mid: number; high: number } {
   const len = data.length;
@@ -45,26 +45,16 @@ export function getBandLevels(data: Uint8Array): { low: number; mid: number; hig
   };
 }
 
-// â”€â”€â”€ Shaders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Vertex shader ────────────────────────────────────────────────────────────
 
-const FLUID_VERT = /* glsl */`
+const VERT = /* glsl */`
 void main() {
   gl_Position = vec4(position.xy, 0.0, 1.0);
 }`;
 
-/**
- * How it works:
- *  1. FBM simplex noise ran through two domain-warp passes â†’ organic curl shapes
- *  2. The raw noise value (â€“1..1) is remapped so that only values ABOVE a
- *     threshold are visible â€” this keeps the background black and concentrates
- *     color in thin, wispy tendrils (the ink-in-water look).
- *  3. A smooth power curve on the visibility mask creates feathered edges
- *     instead of hard outlines.
- *  4. Color: three-stop gradient (deep â†’ mid â†’ core) tinted by energy/valence.
- *     Calm/low energy â†’ cool pink/rose; high energy â†’ hot coral/magenta.
- *  5. Bass reactive: on loud beats the threshold drops so more ink bleeds out.
- */
-const FLUID_FRAG = /* glsl */`
+// ─── Fragment shader ──────────────────────────────────────────────────────────
+
+const FRAG = /* glsl */`
 precision highp float;
 
 uniform float uTime;
@@ -73,150 +63,214 @@ uniform float uLow;
 uniform float uMid;
 uniform float uHigh;
 uniform float uValence;
+uniform float uBeat;
+uniform float uBpmPhase;
 uniform vec2  uResolution;
 
-// â”€â”€ 2D Simplex noise â€” Stefan Gustavson / Ashima Arts (public domain) â”€â”€â”€â”€â”€â”€â”€â”€â”€
-vec3 mod289v3(vec3 x){ return x - floor(x*(1./289.))*289.; }
-vec2 mod289v2(vec2 x){ return x - floor(x*(1./289.))*289.; }
-vec3 permute3(vec3 x){ return mod289v3(((x*34.)+1.)*x); }
+// ── Simplex noise 2D — Gustavson / Ashima Arts (public domain) ───────────────
+vec3 _m289v3(vec3 x){ return x - floor(x*(1./289.))*289.; }
+vec2 _m289v2(vec2 x){ return x - floor(x*(1./289.))*289.; }
+vec3 _perm(vec3 x)  { return _m289v3(((x*34.)+1.)*x); }
 
 float snoise(vec2 v){
   const vec4 C = vec4(.211324865405187,.366025403784439,-.577350269189626,.024390243902439);
-  vec2 i  = floor(v + dot(v,C.yy));
-  vec2 x0 = v - i + dot(i,C.xx);
-  vec2 i1 = (x0.x>x0.y) ? vec2(1.,0.) : vec2(0.,1.);
+  vec2 i  = floor(v + dot(v, C.yy));
+  vec2 x0 = v - i + dot(i, C.xx);
+  vec2 i1  = (x0.x > x0.y) ? vec2(1.,0.) : vec2(0.,1.);
   vec4 x12 = x0.xyxy + C.xxzz;
-  x12.xy -= i1;
-  i = mod289v2(i);
-  vec3 p = permute3(permute3(i.y+vec3(0.,i1.y,1.))+i.x+vec3(0.,i1.x,1.));
-  vec3 m = max(.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.);
-  m=m*m; m=m*m;
-  vec3 x2 = 2.*fract(p*C.www)-1.;
-  vec3 h = abs(x2)-.5;
-  vec3 ox = floor(x2+.5);
-  vec3 a0 = x2-ox;
-  m *= 1.79284291400159-.85373472095314*(a0*a0+h*h);
+  x12.xy  -= i1;
+  i = _m289v2(i);
+  vec3 p = _perm(_perm(i.y + vec3(0.,i1.y,1.)) + i.x + vec3(0.,i1.x,1.));
+  vec3 m = max(.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.);
+  m = m*m; m = m*m;
+  vec3 x2 = 2.*fract(p*C.www) - 1.;
+  vec3 h   = abs(x2) - .5;
+  vec3 ox  = floor(x2 + .5);
+  vec3 a0  = x2 - ox;
+  m *= 1.79284291400159 - .85373472095314*(a0*a0 + h*h);
   vec3 g;
   g.x  = a0.x*x0.x  + h.x*x0.y;
   g.yz = a0.yz*x12.xz + h.yz*x12.yw;
-  return 130.*dot(m,g);
+  return 130.*dot(m, g);
 }
 
-// â”€â”€ FBM: 6 octaves, rotated to break axis artefacts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-mat2 rot2(float a){ float c=cos(a),s=sin(a); return mat2(c,s,-s,c); }
-
-float fbm(vec2 p){
-  float v=0., a=.5;
-  mat2 r = rot2(.5);
-  for(int i=0;i<6;i++){
-    v += a*snoise(p);
-    p  = r*p*2.1 + vec2(31.4,17.3);
+// ── FBM 5 octaves ─────────────────────────────────────────────────────────────
+float fbm(vec2 p) {
+  float v = 0., a = .5;
+  float s = sin(.5), c = cos(.5);
+  mat2 r = mat2(c, s, -s, c);
+  for (int i = 0; i < 5; i++) {
+    v += a * snoise(p);
+    p  = r * p * 2.05 + vec2(12.3, 7.1);
     a *= .5;
   }
-  return v; // range roughly â€“1..1
+  return v;
 }
 
-// â”€â”€ Ink/smoke color: three-stop gradient, energy-tinted â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-vec3 inkColor(float t, float energy, float valence){
-  // t=0 â†’ sparse/outer wisp, t=1 â†’ dense/core
-  // Base palette: deep rose outer â†’ vivid pink mid â†’ near-white hot core
-  // Energy shifts hue (calm=cool pink, loud=warm coral/magenta)
-  float hueShift = energy * 0.12 - valence * 0.06;
-
-  vec3 outer = vec3(0.55 + hueShift, 0.10, 0.25 - hueShift*0.5);
-  vec3 mid   = vec3(0.90 + hueShift*0.5, 0.30, 0.55);
-  vec3 core  = vec3(1.00, 0.85, 0.90);
-
-  vec3 col = mix(outer, mid,  smoothstep(0.0, 0.5, t));
-       col = mix(col,   core, smoothstep(0.5, 1.0, t));
-  // Intensity: energy brightens mid/core, quiet tracks stay moody
-  float lum = 0.5 + energy * 0.7;
-  return col * lum;
+// ── Smoke colour ──────────────────────────────────────────────────────────────
+// valence 0 = cool blue-violet, valence 1 = warm pink-magenta
+vec3 smokeCol(float t, float energy, float valence) {
+  vec3 cThin = mix(vec3(0.08, 0.02, 0.30), vec3(0.40, 0.03, 0.18), valence);
+  vec3 cMid  = mix(vec3(0.28, 0.08, 0.80), vec3(0.90, 0.20, 0.50), valence);
+  vec3 cCore = mix(vec3(0.65, 0.50, 1.00), vec3(1.00, 0.75, 0.80), valence);
+  vec3 col = mix(cThin, cMid,  smoothstep(0.0, 0.55, t));
+       col = mix(col,   cCore, smoothstep(0.55, 1.0,  t));
+  return col * (0.35 + energy * 0.85);
 }
 
-void main(){
-  vec2 uv = gl_FragCoord.xy / uResolution;
-  // Center origin, correct aspect
-  uv = uv*2.-1.;
-  uv.x *= uResolution.x/uResolution.y;
+// ── Explosion colour ──────────────────────────────────────────────────────────
+vec3 explodeCol(float t, float valence, float energy) {
+  vec3 rim  = mix(vec3(0.45, 0.10, 0.90), vec3(1.00, 0.35, 0.15), valence);
+  vec3 core = mix(vec3(0.85, 0.70, 1.00), vec3(1.00, 0.92, 0.75), valence);
+  return mix(rim, core, t) * (0.85 + energy * 0.55);
+}
 
-  // Slow drift â€” smoke doesn't rush
-  float spd = 0.055 + uEnergy*0.07;
-  float t   = uTime * spd;
+void main() {
+  vec2 uv  = gl_FragCoord.xy / uResolution;
+  float ar = uResolution.x / uResolution.y;
+  // Aspect-corrected centred coords
+  vec2 uvC = (uv - .5) * vec2(ar, 1.0);
 
-  // Two-pass domain warp
-  vec2 q = vec2(fbm(uv*1.4 + t),
-                fbm(uv*1.4 + vec2(4.7, 2.3) + t*0.85));
+  // ── BORDER SMOKE ──────────────────────────────────────────────────────────
+  // edgeDist: 0 at screen edge, 0.5 at centre
+  float edgeDist   = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+  float bpmPulse   = 0.5 + 0.5 * sin(uBpmPhase);
+  float borderZone = 0.26 + uEnergy * 0.12 + bpmPulse * 0.03;
+  // 1 at edge → 0 at borderZone depth
+  float borderMask = pow(1.0 - smoothstep(0.0, borderZone, edgeDist), 1.8);
 
-  vec2 r = vec2(fbm(uv*1.2 + 2.8*q + vec2(1.7, 9.2) + t*0.6 + uLow*0.5),
-                fbm(uv*1.2 + 2.8*q + vec2(8.3, 2.8) + t*0.5 + uMid*0.3));
+  vec3 outSmoke = vec3(0.0);
 
-  float n = fbm(uv*0.9 + 2.5*r + t*0.25);
-  // n is in roughly â€“1..1; remap to 0..1
-  float density = clamp(n*0.5 + 0.5, 0., 1.);
+  if (borderMask > 0.001) {
+    // Inward flow: each UV point is pushed toward (0.5, 0.5) over time
+    vec2 inward = (vec2(0.5) - uv) * (0.18 + uEnergy * 0.12);
+    vec2 flowUV = uv * 3.0 + inward * uTime;
+    // Bass turbulence
+    flowUV += vec2(uLow * 0.55 * sin(uTime * 1.9 + uv.y * 4.0),
+                   uLow * 0.55 * cos(uTime * 1.6 + uv.x * 4.0));
 
-  // â”€â”€ KEY: visibility mask keeps background BLACK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // Only pixels where density exceeds threshold get color.
-  // Bass kicks lower the threshold slightly so more ink bleeds out on beats.
-  float threshold = 0.56 - uLow*0.08 - uEnergy*0.04;
-  float rawMask = density - threshold;
-  if(rawMask <= 0.0){ gl_FragColor = vec4(0.,0.,0.,1.); return; }
+    // Two-pass domain warp
+    vec2 q = vec2(fbm(flowUV),
+                  fbm(flowUV + vec2(4.9, 2.1)));
+    float n = fbm(flowUV + 2.2 * q);
 
-  // Smooth feathered edge â€” no hard lines
-  float spread = 0.22 + uEnergy*0.08;
-  float mask = smoothstep(0., spread, rawMask);
-  // Power curve: thins outer wisps, densifies core
-  mask = pow(mask, 1.4);
+    float density = clamp(n * 0.5 + 0.5, 0., 1.);
+    float thresh  = 0.50 - uLow * 0.10;
+    float raw     = density - thresh;
 
-  // Color mapped from wisp-thin (t=0) to dense-core (t=1)
-  vec3 col = inkColor(mask, uEnergy, uValence);
+    if (raw > 0.0) {
+      float sm = pow(smoothstep(0.0, 0.30, raw), 1.2);
+      outSmoke = smokeCol(sm, uEnergy, uValence) * (borderMask * sm);
+    }
+  }
 
-  // Subtle extra glow at dense core (bloom stand-in)
-  float coreMask = pow(mask, 3.5);
-  col += coreMask * vec3(0.8, 0.7, 0.8) * (0.3 + uMid*0.4);
+  // ── BEAT EXPLOSION ────────────────────────────────────────────────────────
+  vec3 outExplode = vec3(0.0);
 
-  gl_FragColor = vec4(col * mask, 1.0);
+  if (uBeat > 0.001) {
+    float dist = length(uvC);
+
+    // Ring expands outward as uBeat decays 1→0
+    float ringR     = (1.0 - uBeat) * 1.40;
+    float ringWidth = 0.06 + (1.0 - uBeat) * 0.22;
+    float innerR    = ringR - 0.02;
+    float outerR    = ringR + ringWidth;
+
+    float ring = smoothstep(innerR - 0.03, innerR, dist)
+               * (1.0 - smoothstep(ringR, outerR, dist));
+    ring = pow(ring, 0.65) * uBeat;
+
+    // central splat disk — only visible right at beat moment
+    float splatR = uBeat * 0.18;
+    float splat  = (1.0 - smoothstep(0.0, splatR + 0.005, dist)) * uBeat * uBeat;
+
+    // soft inner fill inside the ring
+    float fill = (1.0 - smoothstep(0.0, max(ringR - 0.02, 0.001), dist))
+                 * uBeat * 0.20;
+
+    float total = ring + splat * 0.95 + fill;
+    float t     = clamp(1.0 - dist / max(ringR + 0.18, 0.001), 0., 1.);
+    outExplode  = explodeCol(t, uValence, uEnergy) * total;
+  }
+
+  // ── Composite ─────────────────────────────────────────────────────────────
+  vec3 col = outSmoke + outExplode;
+
+  // Very faint centre ambient (barely visible unless high energy)
+  float centreA = (1.0 - smoothstep(0.0, 0.30, length(uvC))) * uEnergy * 0.05;
+  col += smokeCol(0.35, uEnergy, uValence) * centreA;
+
+  gl_FragColor = vec4(col, 1.0);
 }`;
 
-// â”€â”€â”€ Main effect factory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Main factory ─────────────────────────────────────────────────────────────
 
 export function createOrbAndParticles(scene: THREE.Scene, params: EffectParams): VisualEffect {
-
   const bgGeo = new THREE.PlaneGeometry(2, 2);
+
   const bgUniforms = {
     uTime:       { value: 0 },
     uEnergy:     { value: params.energy },
     uLow:        { value: 0 },
     uMid:        { value: 0 },
     uHigh:       { value: 0 },
-    uValence:    { value: params.valence },
+    uValence:    { value: Math.max(0.01, params.valence) },
+    uBeat:       { value: 0 },
+    uBpmPhase:   { value: 0 },
     uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
   };
+
   const bgMat = new THREE.ShaderMaterial({
     uniforms:       bgUniforms,
-    vertexShader:   FLUID_VERT,
-    fragmentShader: FLUID_FRAG,
+    vertexShader:   VERT,
+    fragmentShader: FRAG,
     depthTest:      false,
     depthWrite:     false,
   });
+
   const bgMesh = new THREE.Mesh(bgGeo, bgMat);
   bgMesh.frustumCulled = false;
   bgMesh.renderOrder   = -1;
   scene.add(bgMesh);
 
-  let elapsed = 0;
+  let elapsed   = 0;
+  let smoothLow = 0;
+  let beatDecay = 0;
+  let bpmPhase  = 0;
+
+  const BEAT_FADE   = 0.65;  // seconds for explosion ring to fully fade
+  const LOW_ATTACK  = 0.35;
+  const LOW_RELEASE = 0.05;
+  const BEAT_THRESH = 0.16;  // spike above baseline needed to trigger beat
 
   return {
-    update(efParams: EffectParams, dt: number) {
+    update(p: EffectParams, dt: number) {
       elapsed += dt;
-      const bands = getBandLevels(efParams.frequencyData);
+      const bands = getBandLevels(p.frequencyData);
 
-      bgUniforms.uTime.value    = elapsed;
-      bgUniforms.uEnergy.value  = efParams.energy * 0.5 + efParams.level * 0.5;
-      bgUniforms.uLow.value     = bands.low;
-      bgUniforms.uMid.value     = bands.mid;
-      bgUniforms.uHigh.value    = bands.high;
-      bgUniforms.uValence.value = efParams.valence;
+      // Smooth baseline for beat detection (rises fast, falls slow)
+      smoothLow += (bands.low > smoothLow)
+        ? (bands.low - smoothLow) * LOW_ATTACK
+        : (bands.low - smoothLow) * LOW_RELEASE;
+
+      // Beat trigger: don't re-trigger while current explosion is still strong
+      if ((bands.low - smoothLow) > BEAT_THRESH && beatDecay < 0.25) {
+        beatDecay = 1.0;
+      }
+      beatDecay = Math.max(0, beatDecay - dt / BEAT_FADE);
+
+      // BPM phase for border pulse
+      bpmPhase += dt * ((p.bpm || 120) / 60) * Math.PI * 2;
+      if (bpmPhase > Math.PI * 2) bpmPhase -= Math.PI * 2;
+
+      bgUniforms.uTime.value     = elapsed;
+      bgUniforms.uEnergy.value   = p.energy * 0.55 + p.level * 0.45;
+      bgUniforms.uLow.value      = bands.low;
+      bgUniforms.uMid.value      = bands.mid;
+      bgUniforms.uHigh.value     = bands.high;
+      bgUniforms.uValence.value  = Math.max(0.01, p.valence);
+      bgUniforms.uBeat.value     = beatDecay;
+      bgUniforms.uBpmPhase.value = bpmPhase;
       bgUniforms.uResolution.value.set(window.innerWidth, window.innerHeight);
     },
 
