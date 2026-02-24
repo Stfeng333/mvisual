@@ -26,7 +26,7 @@ function showNoPreviewMessage(container: HTMLElement, trackName: string): void {
   msg.id = 'mvisual-no-preview';
   msg.className = 'no-preview-banner';
   msg.innerHTML = trackName
-    ? `“${escapeHtml(trackName)}” has no 30s preview on Spotify. Try another result or upload your own file.`
+    ? `"${escapeHtml(trackName)}" has no 30s preview available. Try another result or upload your own file.`
     : 'No preview for this track. Upload your own file for full visualization.';
   container.appendChild(msg);
   setTimeout(() => msg.remove(), 8000);

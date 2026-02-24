@@ -21,6 +21,9 @@ export function createScene(container: HTMLElement): SceneContext {
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // Filmic tone mapping gives richer contrast to the additive glow layers
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
   container.appendChild(renderer.domElement);
 
   function resize(w: number, h: number): void {

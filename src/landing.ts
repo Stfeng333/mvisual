@@ -59,7 +59,7 @@ export function renderLanding(container: HTMLElement, onSelect: OnSelect): void 
   const searchInput = document.createElement('input');
   searchInput.type = 'text';
   searchInput.className = 'search-input';
-  searchInput.placeholder = 'Search for a song (Spotify) or upload below…';
+  searchInput.placeholder = 'Search for a song or upload below…';
   searchInput.setAttribute('aria-label', 'Search for a song');
   searchWrap.appendChild(searchInput);
   controls.appendChild(searchWrap);
@@ -191,7 +191,7 @@ async function doSearch(
 ): Promise<void> {
   const api = (window as Window & { __MVISUAL_SPOTIFY_API__?: string }).__MVISUAL_SPOTIFY_API__;
   if (!api) {
-    resultsList.innerHTML = '<li class="track-meta" style="padding:1rem;cursor:default">Configure Spotify backend to search. Use “Upload your own file” for now.</li>';
+    resultsList.innerHTML = '<li class="track-meta" style="padding:1rem;cursor:default">Search backend not configured. Use "Upload your own file" for now.</li>';
     resultsList.hidden = false;
     return;
   }
@@ -246,7 +246,7 @@ async function doSearch(
   } catch (err) {
     console.error('Search error:', err);
     resultsList.innerHTML =
-      '<li class="track-meta" style="padding:1rem;cursor:default">Search unavailable. Start the backend with <code>npm run server</code> in another terminal, then try again. Or use “Upload your own file”.</li>';
+      '<li class="track-meta" style="padding:1rem;cursor:default">Search unavailable. Make sure the backend is running (<code>npm run server</code>), then try again. Or use "Upload your own file".</li>';
     resultsList.hidden = false;
   }
 }
