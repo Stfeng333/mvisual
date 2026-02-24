@@ -11,7 +11,7 @@ node_modules
 dist
 dist-ssr
 
-# Env files (secrets: Spotify Client ID/Secret, etc.)
+# Env files (no credentials currently required; kept for future use)
 .env
 .env.local
 .env.*.local
