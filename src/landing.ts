@@ -1,0 +1,161 @@
+/**
+ * Landing UI: futuristic black screen, "MVisual" title, search bar + upload.
+ * Calls onSelect with either file or Spotify-style track info.
+ */
+
+export type TrackSource =
+  | { type: 'file'; file: File; name: string }
+  | {
+      type: 'spotify';
+      trackId: string;
+      name: string;
+      artist: string;
+      previewUrl: string | null;
+      bpm: number;
+      energy: number;
+      valence: number;
+      genres: string[];
+    };
+
+export type OnSelect = (source: TrackSource) => void;
+
+const searchIconSvg = `<svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>`;
+
+export function renderLanding(container: HTMLElement, onSelect: OnSelect): void {
+  container.innerHTML = '';
+  const fragment = document.createDocumentFragment();
+
+  const title = document.createElement('h1');
+  title.className = 'landing-title';
+  title.textContent = 'MVisual';
+  fragment.appendChild(title);
+
+  const subtitle = document.createElement('p');
+  subtitle.className = 'landing-subtitle';
+  subtitle.textContent = 'Music visualizer';
+  fragment.appendChild(subtitle);
+
+  const controls = document.createElement('div');
+  controls.className = 'landing-controls';
+
+  const searchWrap = document.createElement('div');
+  searchWrap.className = 'search-wrap';
+  searchWrap.innerHTML = searchIconSvg;
+  const searchInput = document.createElement('input');
+  searchInput.type = 'text';
+  searchInput.className = 'search-input';
+  searchInput.placeholder = 'Search for a song (Spotify) or upload below…';
+  searchInput.setAttribute('aria-label', 'Search for a song');
+  searchWrap.appendChild(searchInput);
+  controls.appendChild(searchWrap);
+
+  const resultsList = document.createElement('ul');
+  resultsList.className = 'search-results';
+  resultsList.hidden = true;
+  controls.appendChild(resultsList);
+
+  const uploadWrap = document.createElement('div');
+  uploadWrap.className = 'upload-wrap';
+  const uploadLabel = document.createElement('label');
+  uploadLabel.className = 'upload-label';
+  uploadLabel.htmlFor = 'mvisual-file';
+  uploadLabel.textContent = 'Or upload your own file';
+  const uploadInput = document.createElement('input');
+  uploadInput.id = 'mvisual-file';
+  uploadInput.type = 'file';
+  uploadInput.className = 'upload-input';
+  uploadInput.accept = 'audio/*';
+  uploadLabel.appendChild(uploadInput);
+  uploadWrap.appendChild(uploadLabel);
+  controls.appendChild(uploadWrap);
+
+  fragment.appendChild(controls);
+  container.appendChild(fragment);
+
+  // Search: optional API hook (no-op until backend is set)
+  let searchDebounce: ReturnType<typeof setTimeout> | null = null;
+  searchInput.addEventListener('input', () => {
+    if (searchDebounce) clearTimeout(searchDebounce);
+    const q = searchInput.value.trim();
+    if (!q) {
+      resultsList.hidden = true;
+      resultsList.innerHTML = '';
+      return;
+    }
+    searchDebounce = setTimeout(() => {
+      searchDebounce = null;
+      doSearch(q, resultsList, searchInput, onSelect);
+    }, 300);
+  });
+
+  searchInput.addEventListener('focus', () => {
+    if (resultsList.children.length > 0) resultsList.hidden = false;
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!controls.contains(e.target as Node)) resultsList.hidden = true;
+  });
+
+  // File upload
+  uploadInput.addEventListener('change', () => {
+    const file = uploadInput.files?.[0];
+    if (!file) return;
+    const name = file.name.replace(/\.[^.]+$/, '');
+    onSelect({ type: 'file', file, name });
+  });
+}
+
+async function doSearch(
+  q: string,
+  resultsList: HTMLUListElement,
+  searchInput: HTMLInputElement,
+  onSelect: OnSelect
+): Promise<void> {
+  const api = (window as Window & { __MVISUAL_SPOTIFY_API__?: string }).__MVISUAL_SPOTIFY_API__;
+  if (!api) {
+    resultsList.innerHTML = '<li class="track-meta" style="padding:1rem;cursor:default">Configure Spotify backend to search. Use “Upload your own file” for now.</li>';
+    resultsList.hidden = false;
+    return;
+  }
+  try {
+    const res = await fetch(`${api}/search?q=${encodeURIComponent(q)}`);
+    if (!res.ok) throw new Error('Search failed');
+    const data = (await res.json()) as { tracks?: Array<{ id: string; name: string; artist: string; previewUrl: string | null; bpm: number; energy: number; valence: number; genres: string[] }> };
+    const tracks = data.tracks ?? [];
+    resultsList.innerHTML = '';
+    if (tracks.length === 0) {
+      resultsList.innerHTML = '<li class="track-meta" style="padding:1rem;cursor:default">No results. Try uploading your own file.</li>';
+    } else {
+      for (const t of tracks) {
+        const li = document.createElement('li');
+        li.innerHTML = `<span class="track-name">${escapeHtml(t.name)}</span> <span class="track-meta">${escapeHtml(t.artist)}</span>`;
+        li.addEventListener('click', () => {
+          onSelect({
+            type: 'spotify',
+            trackId: t.id,
+            name: t.name,
+            artist: t.artist,
+            previewUrl: t.previewUrl ?? null,
+            bpm: t.bpm ?? 120,
+            energy: t.energy ?? 0.5,
+            valence: t.valence ?? 0.5,
+            genres: t.genres ?? [],
+          });
+          resultsList.hidden = true;
+          searchInput.value = '';
+        });
+        resultsList.appendChild(li);
+      }
+    }
+    resultsList.hidden = false;
+  } catch {
+    resultsList.innerHTML = '<li class="track-meta" style="padding:1rem;cursor:default">Search unavailable. Use “Upload your own file”.</li>';
+    resultsList.hidden = false;
+  }
+}
+
+function escapeHtml(s: string): string {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
