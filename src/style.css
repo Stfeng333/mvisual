@@ -71,9 +71,27 @@ body {
   letter-spacing: 0.4em;
   text-transform: uppercase;
   color: var(--text-muted);
-  margin-bottom: 3rem;
+  margin-bottom: 0.75rem;
   position: relative;
   z-index: 1;
+}
+
+.spotify-auth-row {
+  margin-bottom: 2rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  position: relative;
+  z-index: 1;
+}
+
+.spotify-auth-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.spotify-auth-link:hover {
+  text-decoration: underline;
 }
 
 /* Search + upload container */

@@ -77,6 +77,21 @@ async function searchTracks(token, q, market = 'US') {
 }
 
 /**
+ * Get full track objects (including preview_url) for given IDs, with market for playability.
+ * Use this to get preview_url when search response omits it.
+ */
+async function getTracks(token, ids, market = 'US') {
+  if (ids.length === 0) return [];
+  const params = new URLSearchParams({ ids: ids.slice(0, 50).join(','), market: market || 'US' });
+  const res = await fetch(`${SPOTIFY_API}/tracks?${params}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.tracks ?? [];
+}
+
+/**
  * Get audio features for up to 100 track IDs.
  */
 async function getAudioFeatures(token, ids) {
@@ -106,18 +121,24 @@ async function getArtists(token, ids) {
 
 /**
  * Build the response shape the frontend expects: { tracks: [...] }
+ * Fetches full track objects (with market) so preview_url is populated when available.
  */
-async function buildSearchResponse(token, tracks) {
+async function buildSearchResponse(token, tracks, market = 'US') {
   if (tracks.length === 0) return { tracks: [] };
 
   const trackIds = tracks.map((t) => t.id).filter(Boolean);
   const artistIds = [...new Set(tracks.flatMap((t) => (t.artists || []).map((a) => a.id).filter(Boolean)))];
 
-  const [featuresList, artistsList] = await Promise.all([
+  const [fullTracksList, featuresList, artistsList] = await Promise.all([
+    getTracks(token, trackIds, market),
     getAudioFeatures(token, trackIds),
     getArtists(token, artistIds),
   ]);
 
+  const fullTrackById = {};
+  for (const ft of fullTracksList) {
+    if (ft && ft.id) fullTrackById[ft.id] = ft;
+  }
   const featuresById = {};
   for (const f of featuresList) {
     if (f && f.id) featuresById[f.id] = f;
@@ -128,15 +149,17 @@ async function buildSearchResponse(token, tracks) {
   }
 
   const result = tracks.map((t) => {
+    const full = fullTrackById[t.id];
     const feat = featuresById[t.id];
     const artistNames = (t.artists || []).map((a) => a.name).filter(Boolean);
     const genres = [...new Set((t.artists || []).flatMap((a) => genresByArtistId[a.id] || []))];
+    const previewUrl = (full && (full.preview_url || null)) || t.preview_url || null;
 
     return {
       id: t.id,
       name: t.name || 'Unknown',
       artist: artistNames.join(', ') || 'Unknown',
-      previewUrl: t.preview_url || null,
+      previewUrl,
       bpm: feat && typeof feat.tempo === 'number' ? Math.round(feat.tempo) : 120,
       energy: feat && typeof feat.energy === 'number' ? feat.energy : 0.5,
       valence: feat && typeof feat.valence === 'number' ? feat.valence : 0.5,

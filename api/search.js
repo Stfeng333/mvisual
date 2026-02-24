@@ -42,6 +42,17 @@ async function searchTracks(token, q, market = 'US') {
   return data.tracks?.items ?? [];
 }
 
+async function getTracks(token, ids, market = 'US') {
+  if (ids.length === 0) return [];
+  const params = new URLSearchParams({ ids: ids.slice(0, 50).join(','), market: market || 'US' });
+  const res = await fetch(`${SPOTIFY_API}/tracks?${params}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.tracks ?? [];
+}
+
 async function getAudioFeatures(token, ids) {
   if (ids.length === 0) return [];
   const res = await fetch(`${SPOTIFY_API}/audio-features?ids=${ids.slice(0, 100).join(',')}`, {
@@ -62,14 +73,19 @@ async function getArtists(token, ids) {
   return data.artists ?? [];
 }
 
-async function buildResponse(token, tracks) {
+async function buildResponse(token, tracks, market = 'US') {
   if (tracks.length === 0) return { tracks: [] };
   const trackIds = tracks.map((t) => t.id).filter(Boolean);
   const artistIds = [...new Set(tracks.flatMap((t) => (t.artists || []).map((a) => a.id).filter(Boolean)))];
-  const [featuresList, artistsList] = await Promise.all([
+  const [fullTracksList, featuresList, artistsList] = await Promise.all([
+    getTracks(token, trackIds, market),
     getAudioFeatures(token, trackIds),
     getArtists(token, artistIds),
   ]);
+  const fullTrackById = {};
+  for (const ft of fullTracksList) {
+    if (ft && ft.id) fullTrackById[ft.id] = ft;
+  }
   const featuresById = {};
   for (const f of featuresList) {
     if (f && f.id) featuresById[f.id] = f;
@@ -80,14 +96,16 @@ async function buildResponse(token, tracks) {
   }
   return {
     tracks: tracks.map((t) => {
+      const full = fullTrackById[t.id];
       const feat = featuresById[t.id];
       const artistNames = (t.artists || []).map((a) => a.name).filter(Boolean);
       const genres = [...new Set((t.artists || []).flatMap((a) => genresByArtistId[a.id] || []))];
+      const previewUrl = (full && (full.preview_url || null)) || t.preview_url || null;
       return {
         id: t.id,
         name: t.name || 'Unknown',
         artist: artistNames.join(', ') || 'Unknown',
-        previewUrl: t.preview_url || null,
+        previewUrl,
         bpm: feat && typeof feat.tempo === 'number' ? Math.round(feat.tempo) : 120,
         energy: feat && typeof feat.energy === 'number' ? feat.energy : 0.5,
         valence: feat && typeof feat.valence === 'number' ? feat.valence : 0.5,
@@ -108,10 +126,18 @@ export default async function handler(req, res) {
   if (!q) return res.status(400).json({ error: 'Missing query parameter: q' });
   const market = ((req.query.market || process.env.SPOTIFY_MARKET || 'US') + '').toUpperCase().slice(0, 2);
 
+  let token;
+  const authHeader = req.headers.authorization;
+  if (authHeader && /^Bearer\s+/i.test(authHeader)) {
+    token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  }
+  if (!token) {
+    token = await getToken();
+  }
+
   try {
-    const token = await getToken();
     const tracks = await searchTracks(token, q, market);
-    const body = await buildResponse(token, tracks);
+    const body = await buildResponse(token, tracks, market);
     return res.status(200).json(body);
   } catch (err) {
     console.error('Spotify API error:', err.message);
