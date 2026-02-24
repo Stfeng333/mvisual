@@ -1,146 +1,83 @@
 /**
  * Vercel serverless: GET /api/search?q=...
- * Spotify proxy (Client Credentials + search + audio features + preview_url).
- * Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in Vercel project Environment Variables.
+ *
+ * Uses the Deezer public API for track search and 30-second preview URLs.
+ * Deezer requires no authentication and preview_url is still fully supported.
+ *
+ * NOTE: Spotify deprecated preview_url (Nov 2024) and audio-features (Nov 2024),
+ * so Deezer is the only reliable free source for 30s previews as of early 2025.
+ *
+ * Deezer docs: https://developers.deezer.com/api/search
  */
 
-const SPOTIFY_ACCOUNTS = 'https://accounts.spotify.com/api/token';
-const SPOTIFY_API = 'https://api.spotify.com/v1';
+const DEEZER_API = 'https://api.deezer.com';
 
-async function getToken() {
-  const clientId = process.env.SPOTIFY_CLIENT_ID;
-  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
-    throw new Error('Missing SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET in Vercel env');
-  }
-  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-  const res = await fetch(SPOTIFY_ACCOUNTS, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: `Basic ${auth}`,
-    },
-    body: 'grant_type=client_credentials',
-  });
-  if (!res.ok) throw new Error(`Spotify token failed: ${res.status}`);
-  const data = await res.json();
-  return data.access_token;
-}
-
-async function searchTracks(token, q, market = 'US') {
+/**
+ * Search Deezer for tracks matching the query.
+ * Returns the raw Deezer track objects.
+ */
+async function searchDeezer(q, limit = 10) {
   const params = new URLSearchParams({
     q: String(q).trim(),
-    type: 'track',
-    limit: 10,
-    market: market || 'US',
+    limit: String(limit),
+    output: 'json',
   });
-  const res = await fetch(`${SPOTIFY_API}/search?${params}`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const res = await fetch(`${DEEZER_API}/search?${params}`, {
+    headers: { Accept: 'application/json' },
   });
-  if (!res.ok) throw new Error(`Spotify search failed: ${res.status}`);
+  if (!res.ok) throw new Error(`Deezer search failed: ${res.status}`);
   const data = await res.json();
-  return data.tracks?.items ?? [];
+  if (data.error) throw new Error(`Deezer error: ${data.error.message || JSON.stringify(data.error)}`);
+  return data.data ?? [];
 }
 
-async function getTracks(token, ids, market = 'US') {
-  if (ids.length === 0) return [];
-  const params = new URLSearchParams({ ids: ids.slice(0, 50).join(','), market: market || 'US' });
-  const res = await fetch(`${SPOTIFY_API}/tracks?${params}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.tracks ?? [];
-}
+/**
+ * Map a raw Deezer track to the shape the frontend expects.
+ * Deezer track fields used:
+ *   id, title, artist.name, preview (30s mp3 URL), bpm, gain
+ */
+function mapDeezerTrack(t) {
+  // Deezer includes bpm when known; fall back to 120.
+  const bpm = t.bpm && t.bpm > 0 ? Math.round(t.bpm) : 120;
 
-async function getAudioFeatures(token, ids) {
-  if (ids.length === 0) return [];
-  const res = await fetch(`${SPOTIFY_API}/audio-features?ids=${ids.slice(0, 100).join(',')}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.audio_features ?? [];
-}
-
-async function getArtists(token, ids) {
-  if (ids.length === 0) return [];
-  const res = await fetch(`${SPOTIFY_API}/artists?ids=${ids.slice(0, 50).join(',')}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.artists ?? [];
-}
-
-async function buildResponse(token, tracks, market = 'US') {
-  if (tracks.length === 0) return { tracks: [] };
-  const trackIds = tracks.map((t) => t.id).filter(Boolean);
-  const artistIds = [...new Set(tracks.flatMap((t) => (t.artists || []).map((a) => a.id).filter(Boolean)))];
-  const [fullTracksList, featuresList, artistsList] = await Promise.all([
-    getTracks(token, trackIds, market),
-    getAudioFeatures(token, trackIds),
-    getArtists(token, artistIds),
-  ]);
-  const fullTrackById = {};
-  for (const ft of fullTracksList) {
-    if (ft && ft.id) fullTrackById[ft.id] = ft;
+  // Deezer's `gain` is a loudness value in dB (typically -15 to 5).
+  // Normalise it to an approximate 0–1 energy proxy so the visualizer
+  // behaves sensibly even without Spotify audio features.
+  let energy = 0.6;
+  if (typeof t.gain === 'number') {
+    // gain range roughly -18 to +6; map to 0.2–0.9
+    energy = Math.min(0.9, Math.max(0.2, (t.gain + 18) / 24));
   }
-  const featuresById = {};
-  for (const f of featuresList) {
-    if (f && f.id) featuresById[f.id] = f;
-  }
-  const genresByArtistId = {};
-  for (const a of artistsList) {
-    if (a && a.id) genresByArtistId[a.id] = a.genres || [];
-  }
+
   return {
-    tracks: tracks.map((t) => {
-      const full = fullTrackById[t.id];
-      const feat = featuresById[t.id];
-      const artistNames = (t.artists || []).map((a) => a.name).filter(Boolean);
-      const genres = [...new Set((t.artists || []).flatMap((a) => genresByArtistId[a.id] || []))];
-      const previewUrl = (full && (full.preview_url || null)) || t.preview_url || null;
-      return {
-        id: t.id,
-        name: t.name || 'Unknown',
-        artist: artistNames.join(', ') || 'Unknown',
-        previewUrl,
-        bpm: feat && typeof feat.tempo === 'number' ? Math.round(feat.tempo) : 120,
-        energy: feat && typeof feat.energy === 'number' ? feat.energy : 0.5,
-        valence: feat && typeof feat.valence === 'number' ? feat.valence : 0.5,
-        genres,
-      };
-    }),
+    id: String(t.id),
+    name: t.title || t.title_short || 'Unknown',
+    artist: t.artist?.name || 'Unknown',
+    previewUrl: t.preview || null,   // direct 30s mp3, CORS-enabled
+    bpm,
+    energy,
+    valence: 0.5,  // Deezer has no valence equivalent; use neutral default
+    genres: [],    // Deezer genre requires a separate /genre call; skip for now
   };
 }
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+
   const q = (req.query.q || '').trim();
   if (!q) return res.status(400).json({ error: 'Missing query parameter: q' });
-  const market = ((req.query.market || process.env.SPOTIFY_MARKET || 'US') + '').toUpperCase().slice(0, 2);
-
-  let token;
-  const authHeader = req.headers.authorization;
-  if (authHeader && /^Bearer\s+/i.test(authHeader)) {
-    token = authHeader.replace(/^Bearer\s+/i, '').trim();
-  }
-  if (!token) {
-    token = await getToken();
-  }
 
   try {
-    const tracks = await searchTracks(token, q, market);
-    const body = await buildResponse(token, tracks, market);
-    return res.status(200).json(body);
+    const raw = await searchDeezer(q, 10);
+    const tracks = raw.map(mapDeezerTrack);
+    return res.status(200).json({ tracks });
   } catch (err) {
-    console.error('Spotify API error:', err.message);
+    console.error('Deezer search error:', err.message);
     return res.status(500).json({ error: err.message || 'Search failed' });
   }
 }

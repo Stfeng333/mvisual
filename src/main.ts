@@ -4,41 +4,12 @@ import { renderLanding, type TrackSource } from './landing';
 declare global {
   interface Window {
     __MVISUAL_SPOTIFY_API__?: string;
-    __MVISUAL_SPOTIFY_USER_TOKEN__?: string | null;
   }
 }
 
-// Use /api for Spotify search (dev: Vite proxy; production: Vercel serverless at same origin)
+// Use /api for Deezer-backed search (dev: Vite proxy; production: Vercel serverless at same origin)
 if (typeof window !== 'undefined' && window.__MVISUAL_SPOTIFY_API__ === undefined) {
   window.__MVISUAL_SPOTIFY_API__ = '/api';
-}
-
-// Read Spotify user token from hash (after OAuth redirect) or sessionStorage; 30s previews require user token
-if (typeof window !== 'undefined') {
-  const hash = window.location.hash.slice(1);
-  const params = new URLSearchParams(hash);
-  const accessToken = params.get('access_token');
-  if (accessToken) {
-    try {
-      sessionStorage.setItem('mvisual_spotify_token', accessToken);
-      const expiresIn = params.get('expires_in');
-      if (expiresIn) sessionStorage.setItem('mvisual_spotify_token_expires', String(Date.now() + parseInt(expiresIn, 10) * 1000));
-    } catch {}
-    window.__MVISUAL_SPOTIFY_USER_TOKEN__ = accessToken;
-    window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    window.location.hash = '';
-  } else {
-    try {
-      const exp = sessionStorage.getItem('mvisual_spotify_token_expires');
-      if (exp && Date.now() > parseInt(exp, 10)) {
-        sessionStorage.removeItem('mvisual_spotify_token');
-        sessionStorage.removeItem('mvisual_spotify_token_expires');
-      } else {
-        const stored = sessionStorage.getItem('mvisual_spotify_token');
-        if (stored) window.__MVISUAL_SPOTIFY_USER_TOKEN__ = stored;
-      }
-    } catch {}
-  }
 }
 import { createAudioFromFile, createAudioFromUrl } from './audio/player';
 import { createScene } from './visualizer/scene';

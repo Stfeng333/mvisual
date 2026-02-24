@@ -42,42 +42,13 @@ export function renderLanding(container: HTMLElement, onSelect: OnSelect): void 
   subtitle.textContent = 'Music visualizer';
   fragment.appendChild(subtitle);
 
-  const spotifyAuthRow = document.createElement('div');
-  spotifyAuthRow.className = 'spotify-auth-row';
-  const authLabel = document.createElement('span');
-  authLabel.className = 'spotify-auth-label';
-  const authLink = document.createElement('a');
-  authLink.className = 'spotify-auth-link';
-  authLink.setAttribute('aria-label', 'Log in with Spotify to play 30s previews');
-  authLink.addEventListener('click', (e) => {
-    e.preventDefault();
-    const token = (window as Window & { __MVISUAL_SPOTIFY_USER_TOKEN__?: string | null }).__MVISUAL_SPOTIFY_USER_TOKEN__;
-    if (token) {
-      (window as Window & { __MVISUAL_SPOTIFY_USER_TOKEN__?: string | null }).__MVISUAL_SPOTIFY_USER_TOKEN__ = null;
-      try {
-        sessionStorage.removeItem('mvisual_spotify_token');
-        sessionStorage.removeItem('mvisual_spotify_token_expires');
-      } catch {}
-      updateAuthUI();
-    } else {
-      window.location.href = '/api/auth/login';
-    }
-  });
-  function updateAuthUI() {
-    const token = (window as Window & { __MVISUAL_SPOTIFY_USER_TOKEN__?: string | null }).__MVISUAL_SPOTIFY_USER_TOKEN__;
-    if (token) {
-      authLabel.textContent = 'Logged in with Spotify — 30s previews enabled.';
-      authLink.textContent = 'Log out';
-    } else {
-      authLabel.textContent = 'Log in with Spotify to play 30s previews.';
-      authLink.textContent = 'Log in';
-    }
-  }
-  updateAuthUI();
-  spotifyAuthRow.appendChild(authLabel);
-  spotifyAuthRow.appendChild(document.createTextNode(' '));
-  spotifyAuthRow.appendChild(authLink);
-  fragment.appendChild(spotifyAuthRow);
+  const deezerInfoRow = document.createElement('div');
+  deezerInfoRow.className = 'spotify-auth-row';
+  const infoLabel = document.createElement('span');
+  infoLabel.className = 'spotify-auth-label';
+  infoLabel.textContent = '30s previews via Deezer — no login required.';
+  deezerInfoRow.appendChild(infoLabel);
+  fragment.appendChild(deezerInfoRow);
 
   const controls = document.createElement('div');
   controls.className = 'landing-controls';
@@ -225,10 +196,7 @@ async function doSearch(
     return;
   }
   try {
-    const userToken = (window as Window & { __MVISUAL_SPOTIFY_USER_TOKEN__?: string | null }).__MVISUAL_SPOTIFY_USER_TOKEN__;
-    const headers: HeadersInit = {};
-    if (userToken) headers['Authorization'] = `Bearer ${userToken}`;
-    const res = await fetch(`${api}/search?q=${encodeURIComponent(q)}`, { headers });
+    const res = await fetch(`${api}/search?q=${encodeURIComponent(q)}`);
     if (!res.ok) throw new Error('Search failed');
     const data = (await res.json()) as { tracks?: Array<{ id: string; name: string; artist: string; previewUrl: string | null; bpm: number; energy: number; valence: number; genres: string[] }> };
     const tracks = data.tracks ?? [];
