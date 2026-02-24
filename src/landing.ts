@@ -116,7 +116,14 @@ export function renderLanding(container: HTMLElement, onSelect: OnSelect): void 
     }
     searchDebounce = setTimeout(() => {
       searchDebounce = null;
-      doSearch(q, resultsList, searchInput, onSelect);
+      doSearch(q, resultsList, searchInput, onSelect, {
+        noPreviewCard,
+        noPreviewLabel,
+        hideNoPreviewCard,
+        setPendingNoPreviewMeta: (m) => {
+          pendingNoPreviewMeta = m;
+        },
+      });
     }, 300);
   });
 
@@ -160,11 +167,19 @@ export function renderLanding(container: HTMLElement, onSelect: OnSelect): void 
   });
 }
 
+type NoPreviewContext = {
+  noPreviewCard: HTMLElement;
+  noPreviewLabel: HTMLElement;
+  hideNoPreviewCard: () => void;
+  setPendingNoPreviewMeta: (m: { name: string; bpm: number; energy: number; valence: number; genres: string[] } | null) => void;
+};
+
 async function doSearch(
   q: string,
   resultsList: HTMLUListElement,
   searchInput: HTMLInputElement,
-  onSelect: OnSelect
+  onSelect: OnSelect,
+  noPreviewCtx: NoPreviewContext
 ): Promise<void> {
   const api = (window as Window & { __MVISUAL_SPOTIFY_API__?: string }).__MVISUAL_SPOTIFY_API__;
   if (!api) {
@@ -183,9 +198,9 @@ async function doSearch(
     } else {
       for (const t of tracks) {
         const li = document.createElement('li');
-        const noPreview = !t.previewUrl;
-        if (noPreview) li.classList.add('track-no-preview');
-        li.innerHTML = `<span class="track-name">${escapeHtml(t.name)}</span> <span class="track-meta">${escapeHtml(t.artist)}</span>${noPreview ? ' <span class="track-no-preview-tag">No preview</span>' : ''}`;
+        const trackNoPreview = !t.previewUrl;
+        if (trackNoPreview) li.classList.add('track-no-preview');
+        li.innerHTML = `<span class="track-name">${escapeHtml(t.name)}</span> <span class="track-meta">${escapeHtml(t.artist)}</span>${trackNoPreview ? ' <span class="track-no-preview-tag">No preview</span>' : ''}`;
         li.addEventListener('click', () => {
           const meta = {
             bpm: t.bpm ?? 120,
@@ -193,10 +208,10 @@ async function doSearch(
             valence: t.valence ?? 0.5,
             genres: t.genres ?? [],
           };
-          if (noPreview) {
-            pendingNoPreviewMeta = { name: t.name, ...meta };
-            noPreviewLabel.innerHTML = `Upload "<strong>${escapeHtml(t.name)}</strong>" to visualize with this track's BPM & energy`;
-            noPreviewCard.hidden = false;
+          if (trackNoPreview) {
+            noPreviewCtx.setPendingNoPreviewMeta({ name: t.name, ...meta });
+            noPreviewCtx.noPreviewLabel.innerHTML = `Upload "<strong>${escapeHtml(t.name)}</strong>" to visualize with this track's BPM & energy`;
+            noPreviewCtx.noPreviewCard.hidden = false;
             resultsList.hidden = true;
             searchInput.value = '';
             return;
@@ -212,7 +227,7 @@ async function doSearch(
             valence: meta.valence,
             genres: meta.genres,
           });
-          hideNoPreviewCard();
+          noPreviewCtx.hideNoPreviewCard();
           resultsList.hidden = true;
           searchInput.value = '';
         });
