@@ -10,6 +10,12 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+
+# Env files (secrets: Spotify Client ID/Secret, etc.)
+.env
+.env.local
+.env.*.local
+
 *.local
 
 # Editor directories and files

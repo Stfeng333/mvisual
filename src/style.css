@@ -200,6 +200,59 @@ body {
   font-size: 0.75rem;
 }
 
+.search-results .track-no-preview-tag {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
+.search-results li.track-no-preview {
+  opacity: 0.85;
+}
+
+/* "Upload this song" card when track has no preview */
+.upload-no-preview-card {
+  margin-top: 1rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--accent-dim);
+  border-radius: 6px;
+  background: rgba(0, 212, 170, 0.06);
+}
+
+.upload-no-preview-card label {
+  display: block;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.upload-no-preview-card label strong {
+  color: var(--accent);
+}
+
+.upload-no-preview-card .upload-input {
+  margin-top: 0.5rem;
+}
+
+/* No-preview banner (when user picks a track with no 30s preview) */
+.no-preview-banner {
+  position: fixed;
+  top: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  padding: 0.75rem 1.25rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--accent-dim);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  max-width: 90vw;
+  text-align: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
 /* Visualizer root: full screen, above everything when active */
 #visualizer-root {
   position: fixed;

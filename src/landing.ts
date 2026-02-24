@@ -3,8 +3,15 @@
  * Calls onSelect with either file or Spotify-style track info.
  */
 
+export type SpotifyMeta = {
+  bpm: number;
+  energy: number;
+  valence: number;
+  genres: string[];
+};
+
 export type TrackSource =
-  | { type: 'file'; file: File; name: string }
+  | { type: 'file'; file: File; name: string; meta?: SpotifyMeta }
   | {
       type: 'spotify';
       trackId: string;
@@ -69,12 +76,37 @@ export function renderLanding(container: HTMLElement, onSelect: OnSelect): void 
   uploadWrap.appendChild(uploadLabel);
   controls.appendChild(uploadWrap);
 
+  // Card shown when user picks a track with no preview: "Upload this song" to use Spotify BPM/energy
+  const noPreviewCard = document.createElement('div');
+  noPreviewCard.className = 'upload-no-preview-card';
+  noPreviewCard.hidden = true;
+  const noPreviewLabel = document.createElement('label');
+  noPreviewLabel.className = 'upload-label';
+  noPreviewLabel.htmlFor = 'mvisual-file-no-preview';
+  noPreviewCard.appendChild(noPreviewLabel);
+  const noPreviewInput = document.createElement('input');
+  noPreviewInput.id = 'mvisual-file-no-preview';
+  noPreviewInput.type = 'file';
+  noPreviewInput.accept = 'audio/*';
+  noPreviewInput.className = 'upload-input';
+  noPreviewCard.appendChild(noPreviewInput);
+  controls.appendChild(noPreviewCard);
+
   fragment.appendChild(controls);
   container.appendChild(fragment);
+
+  let pendingNoPreviewMeta: { name: string; bpm: number; energy: number; valence: number; genres: string[] } | null = null;
+
+  function hideNoPreviewCard() {
+    noPreviewCard.hidden = true;
+    pendingNoPreviewMeta = null;
+    noPreviewInput.value = '';
+  }
 
   // Search: optional API hook (no-op until backend is set)
   let searchDebounce: ReturnType<typeof setTimeout> | null = null;
   searchInput.addEventListener('input', () => {
+    hideNoPreviewCard();
     if (searchDebounce) clearTimeout(searchDebounce);
     const q = searchInput.value.trim();
     if (!q) {
@@ -93,15 +125,38 @@ export function renderLanding(container: HTMLElement, onSelect: OnSelect): void 
   });
 
   document.addEventListener('click', (e) => {
-    if (!controls.contains(e.target as Node)) resultsList.hidden = true;
+    if (!controls.contains(e.target as Node)) {
+      resultsList.hidden = true;
+      hideNoPreviewCard();
+    }
   });
 
-  // File upload
+  // File upload (general)
   uploadInput.addEventListener('change', () => {
     const file = uploadInput.files?.[0];
     if (!file) return;
     const name = file.name.replace(/\.[^.]+$/, '');
+    hideNoPreviewCard();
     onSelect({ type: 'file', file, name });
+  });
+
+  // File upload for "no preview" track (use Spotify metadata with uploaded file)
+  noPreviewInput.addEventListener('change', () => {
+    const file = noPreviewInput.files?.[0];
+    if (!file || !pendingNoPreviewMeta) return;
+    const name = file.name.replace(/\.[^.]+$/, '');
+    onSelect({
+      type: 'file',
+      file,
+      name,
+      meta: {
+        bpm: pendingNoPreviewMeta.bpm,
+        energy: pendingNoPreviewMeta.energy,
+        valence: pendingNoPreviewMeta.valence,
+        genres: pendingNoPreviewMeta.genres,
+      },
+    });
+    hideNoPreviewCard();
   });
 }
 
@@ -128,19 +183,36 @@ async function doSearch(
     } else {
       for (const t of tracks) {
         const li = document.createElement('li');
-        li.innerHTML = `<span class="track-name">${escapeHtml(t.name)}</span> <span class="track-meta">${escapeHtml(t.artist)}</span>`;
+        const noPreview = !t.previewUrl;
+        if (noPreview) li.classList.add('track-no-preview');
+        li.innerHTML = `<span class="track-name">${escapeHtml(t.name)}</span> <span class="track-meta">${escapeHtml(t.artist)}</span>${noPreview ? ' <span class="track-no-preview-tag">No preview</span>' : ''}`;
         li.addEventListener('click', () => {
+          const meta = {
+            bpm: t.bpm ?? 120,
+            energy: t.energy ?? 0.5,
+            valence: t.valence ?? 0.5,
+            genres: t.genres ?? [],
+          };
+          if (noPreview) {
+            pendingNoPreviewMeta = { name: t.name, ...meta };
+            noPreviewLabel.innerHTML = `Upload "<strong>${escapeHtml(t.name)}</strong>" to visualize with this track's BPM & energy`;
+            noPreviewCard.hidden = false;
+            resultsList.hidden = true;
+            searchInput.value = '';
+            return;
+          }
           onSelect({
             type: 'spotify',
             trackId: t.id,
             name: t.name,
             artist: t.artist,
             previewUrl: t.previewUrl ?? null,
-            bpm: t.bpm ?? 120,
-            energy: t.energy ?? 0.5,
-            valence: t.valence ?? 0.5,
-            genres: t.genres ?? [],
+            bpm: meta.bpm,
+            energy: meta.energy,
+            valence: meta.valence,
+            genres: meta.genres,
           });
+          hideNoPreviewCard();
           resultsList.hidden = true;
           searchInput.value = '';
         });
@@ -148,8 +220,10 @@ async function doSearch(
       }
     }
     resultsList.hidden = false;
-  } catch {
-    resultsList.innerHTML = '<li class="track-meta" style="padding:1rem;cursor:default">Search unavailable. Use “Upload your own file”.</li>';
+  } catch (err) {
+    console.error('Search error:', err);
+    resultsList.innerHTML =
+      '<li class="track-meta" style="padding:1rem;cursor:default">Search unavailable. Start the backend with <code>npm run server</code> in another terminal, then try again. Or use “Upload your own file”.</li>';
     resultsList.hidden = false;
   }
 }

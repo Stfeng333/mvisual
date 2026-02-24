@@ -1,5 +1,16 @@
 import './style.css';
 import { renderLanding, type TrackSource } from './landing';
+
+// Use local proxy in dev so Spotify search works without manual config
+declare global {
+  interface Window {
+    __MVISUAL_SPOTIFY_API__?: string;
+  }
+}
+// Use /api for Spotify search (dev: Vite proxy; production: Vercel serverless at same origin)
+if (typeof window !== 'undefined' && window.__MVISUAL_SPOTIFY_API__ === undefined) {
+  window.__MVISUAL_SPOTIFY_API__ = '/api';
+}
 import { createAudioFromFile, createAudioFromUrl } from './audio/player';
 import { createScene } from './visualizer/scene';
 import { createOrbAndParticles } from './visualizer/effects';
@@ -7,6 +18,24 @@ import { runVisualizerLoop } from './visualizer/loop';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const visualizerRoot = document.querySelector<HTMLDivElement>('#visualizer-root')!;
+
+function showNoPreviewMessage(container: HTMLElement, trackName: string): void {
+  const existing = document.getElementById('mvisual-no-preview');
+  if (existing) existing.remove();
+  const msg = document.createElement('div');
+  msg.id = 'mvisual-no-preview';
+  msg.className = 'no-preview-banner';
+  msg.innerHTML = trackName
+    ? `“${escapeHtml(trackName)}” has no 30s preview on Spotify. Try another result or upload your own file.`
+    : 'No preview for this track. Upload your own file for full visualization.';
+  container.appendChild(msg);
+  setTimeout(() => msg.remove(), 8000);
+}
+function escapeHtml(s: string): string {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
 
 function getMetadataFromSource(source: TrackSource): {
   bpm: number;
@@ -22,6 +51,9 @@ function getMetadataFromSource(source: TrackSource): {
       genres: source.genres,
     };
   }
+  if (source.type === 'file' && source.meta) {
+    return source.meta;
+  }
   return {
     bpm: 120,
     energy: 0.6,
@@ -31,6 +63,7 @@ function getMetadataFromSource(source: TrackSource): {
 }
 
 function startVisualizer(source: TrackSource): void {
+  document.getElementById('mvisual-no-preview')?.remove();
   app.style.display = 'none';
   visualizerRoot.classList.add('active');
   visualizerRoot.innerHTML = '';
@@ -48,9 +81,10 @@ function startVisualizer(source: TrackSource): void {
     } else if (source.type === 'spotify' && source.previewUrl) {
       playback = await createAudioFromUrl(source.previewUrl);
     } else {
-      visualizerRoot.innerHTML = '<p style="color:rgba(255,255,255,0.6);padding:2rem;text-align:center">No preview for this track. Upload your own file for full visualization.</p>';
+      // No preview: show message in the landing so the user actually sees it
       visualizerRoot.classList.remove('active');
       app.style.display = '';
+      showNoPreviewMessage(app, source.type === 'spotify' ? source.name : '');
       return;
     }
 
