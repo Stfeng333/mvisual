@@ -1,6 +1,4 @@
-/**
- * Render loop: tick animation, read analyser, update effects, render.
- */
+/*Render loop: tick animation, read analyser, update effects, render*/
 
 import type { SceneContext } from './scene';
 import type { VisualEffect, EffectParams } from './effects';

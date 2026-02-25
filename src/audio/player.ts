@@ -1,5 +1,5 @@
 /**
- * Audio playback from File or URL (e.g. Spotify preview).
+ * Audio playback from File or URL (e.g. Deezer 30s preview).
  * Exposes AnalyserNode for visualization and basic metadata.
  */
 

@@ -1,7 +1,6 @@
 /**
- * Three.js full-screen scene using OrthographicCamera.
- * This is the standard approach for fullscreen shader/visualizer effects —
- * it guarantees a PlaneGeometry(2,2) always fills the entire canvas.
+ * Three.js full-screen scene using Orthographic Camera
+ * This is the standard approach for fullscreen shader/visualizer effects
  */
 
 import * as THREE from 'three';

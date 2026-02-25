@@ -1,4 +1,4 @@
-/* MVisual – Futuristic black base */
+/* MVisual styling */
 :root {
   --bg-deep: #050508;
   --bg-surface: #0a0a0f;
@@ -178,7 +178,7 @@ body {
   z-index: -1;
 }
 
-/* Search results (for Spotify later) */
+/* Search results — Deezer track list */
 .search-results {
   list-style: none;
   margin: 0.75rem 0 0;

@@ -1,7 +1,5 @@
-/**
- * Landing UI: futuristic black screen, "MVisual" title, search bar + upload.
- * Calls onSelect with either file or Spotify-style track info.
- */
+// Note: type names and the `__MVISUAL_SPOTIFY_API__` window global use legacy "Spotify" naming
+// from the original plan. The project now uses the Deezer public API — no credentials needed.
 
 export type SpotifyMeta = {
   bpm: number;
@@ -84,7 +82,7 @@ export function renderLanding(container: HTMLElement, onSelect: OnSelect): void 
   uploadWrap.appendChild(uploadLabel);
   controls.appendChild(uploadWrap);
 
-  // Card shown when user picks a track with no preview: "Upload this song" to use Spotify BPM/energy
+  // Card shown when user picks a track with no preview: "Upload this song" to use Deezer BPM/energy
   const noPreviewCard = document.createElement('div');
   noPreviewCard.className = 'upload-no-preview-card';
   noPreviewCard.hidden = true;
@@ -155,7 +153,6 @@ export function renderLanding(container: HTMLElement, onSelect: OnSelect): void 
     onSelect({ type: 'file', file, name });
   });
 
-  // File upload for "no preview" track (use Spotify metadata with uploaded file)
   noPreviewInput.addEventListener('change', () => {
     const file = noPreviewInput.files?.[0];
     if (!file || !pendingNoPreviewMeta) return;
